@@ -1,0 +1,173 @@
+;========================================= 
+;;;; 変数指定
+;;Curennt Directory
+getdir DIR
+;; ホスト一覧ファイル指定 
+HOSTFILE = DIR
+strconcat HOSTFILE '\info\hostlist.csv'
+;; コマンドファイル指定 
+CMDPATH = DIR
+strconcat CMDPATH '\info\'
+;; ログ保存先指定 
+LOGFILE = DIR
+strconcat LOGFILE '\logs\' 
+;; セパレート文字列指定
+separator = ','
+;; 試験番号入力
+inputbox '試験項番:' 'Test_Number'
+TESTNUM = inputstr
+;; ログファイル付加情報
+inputbox '付加情報:' 'Other_Infomation'
+OTHERINFO = inputstr
+;========================================== 
+
+;;;; 1.ホスト一覧ファイルオープン 
+fileopen HOSTLIST HOSTFILE 0 0
+;; 1行目は読み捨て
+filereadln HOSTLIST fizz
+
+while 1
+
+    ;;;; 2.ホスト一覧情報の読み込み
+    ;; 2-1.接続ホスト（一行）読み込み 
+    filereadln HOSTLIST fizz
+        
+    ;; 2-2.読み込み失敗時、終了
+    if result then
+        break
+    endif
+    
+    ;; 2-3.空白行の時、次行に遷移
+    strlen fizz
+    if result=0 goto NEXT_STEP
+    
+    ;; 2-4.csvファイル読み込み、各変数へ格納
+    strsplit fizz separator
+    IP_ADD = groupmatchstr1
+    HOSTNAME = groupmatchstr2
+    USERNAME = groupmatchstr3
+    PASSWORD = groupmatchstr4
+    HARDTYPE = groupmatchstr5
+    CMDFILE = groupmatchstr6
+    CMD_PATH = CMDPATH
+    strconcat CMD_PATH CMDFILE
+    
+    ;; 2-5.wait終了判定用変数
+    sprintf2 WAIT_VAR1 #10'%s#' HOSTNAME
+    sprintf2 WAIT_VAR2 #10'%s>' HOSTNAME
+    sprintf2 WAIT_VAR3 #10'<%s>' HOSTNAME
+    
+    ;;;; 3.ホスト一覧情報(1行)を基に、ホストへの接続
+    ;;　3-1.対象への接続
+    timeout = 5
+    sprintf2 HOSTNAME2 '#10%s' HOSTNAME
+    sprintf2 SSH_CON '%s /ssh /auth=password /user=%s /passwd=%s' IP_ADD USERNAME PASSWORD
+    connect SSH_CON
+    wait WAIT_VAR1 WAIT_VAR2 WAIT_VAR3
+    if result = 0 then
+        goto NEXT_STEP
+    endif
+    
+    ;;;;　4.接続機種による、事前準備
+    ;; 4-1.SEIL
+    strcompare HARDTYPE 'SEIL'
+    if result = 0 then
+        goto LOG_FITST
+    endif
+    ;; 4-2.Cisco
+    strcompare HARDTYPE "Cisco"
+    if result = 0 then
+        pause 1
+        sendln
+        CALL WAIT_FIN        
+        sendln 'enable'
+        wait 'Password:'
+        sendln PASSWORD
+        CALL WAIT_FIN
+        sendln 'ter len 0'
+        CALL WAIT_FIN
+        sendln
+        goto LOG_FITST
+    endif
+    ;; 4-3.HP
+    strcompare HARDTYPE "HP"
+    if result = 0 then
+        sendln
+        goto LOG_FITST
+    endif
+    
+    
+    :LOG_FITST
+    ;;;; 5.コマンド取得
+    timeout = 0
+    CALL GET_LOG
+    
+    ;;;; 6.終了処理
+    :LOG_END
+    pause 3
+    closett
+    
+    :NEXT_STEP
+endwhile
+ 
+;;;; 7.ホスト一覧ファイルクローズ 
+fileclose HOSTLIST
+messagebox "Finish" "FIN"
+ 
+;;;; 8.マクロ終了 
+end 
+;=========================================
+ 
+;; *****サブルーチン***** 
+:GET_LOG
+;; A-1.ログファイル名の設定 
+getdate LOG_DATE '%Y%m%d'
+FULL_PATH = LOGFILE
+strconcat FULL_PATH TESTNUM
+strconcat FULL_PATH '_'
+strconcat FULL_PATH HOSTNAME
+strconcat FULL_PATH '_'
+strconcat FULL_PATH OTHERINFO
+strconcat FULL_PATH '_'
+strconcat FULL_PATH LOG_DATE
+strconcat FULL_PATH '.log'
+
+;; A-2 ログ取得開始 
+logopen FULL_PATH 1 1 
+sendln
+wait WAIT_VAR1 WAIT_VAR2 WAIT_VAR3
+ 
+;; A-3 コマンド取得 
+fileopen fh CMD_PATH 0 0
+
+while 1
+    filereadln fh buf
+    if result then
+        break
+    endif
+    
+    sendln buf
+    wait WAIT_VAR1 WAIT_VAR2 WAIT_VAR3
+    sendln
+    wait WAIT_VAR1 WAIT_VAR2 WAIT_VAR3
+    pause 1
+        
+endwhile
+
+fileclose fh
+logclose
+return
+
+;;;; B.wait処理
+:WAIT_FIN
+wait WAIT_VAR1 WAIT_VAR2 WAIT_VAR3
+return
+
+::;; C.ERROR処理
+;ERROR
+title = "接続ERROR"
+message　=　"ホスト情報誤りにより\n接続失敗\n"
+messagebox message title
+end
+
+;; *****サブルーチン終わり*****
